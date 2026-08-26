@@ -97,3 +97,56 @@ def illuminant(spec):
     c1, c2 = 3.741771e-16, 1.438777e-2      # SI radiation constants
     spd = c1 / (wl ** 5 * (np.exp(c2 / (wl * spec)) - 1.0))
     return 100.0 * spd / spd[WAVELENGTHS == 560]
+
+
+# ----------------------------------------------------------------------------
+# REFLECTANCE
+# Each cell is given a spectrum built from two Gaussian lobes over
+# wavelength. Their positions drift across the canvas as smooth fields, so
+# neighbouring cells are spectrally related rather than randomly coloured --
+# the composition is continuous even though every cell is computed alone.
+# ----------------------------------------------------------------------------
+
+def smooth_field(points, rng, waves=3, scale=1.6):
+    """A sum of a few plane waves. Deterministic, band-limited, in [-1, 1]."""
+    total = np.zeros(len(points))
+    for _ in range(waves):
+        direction = rng.normal(size=2)
+        direction /= np.linalg.norm(direction)
+        frequency = scale * np.pi * rng.uniform(0.4, 1.5)
+        phase = rng.uniform(0, 2 * np.pi)
+        total += np.cos(points @ direction * frequency + phase)
+    return total / waves
+
+
+def reflectance_spectra(points, rng):
+    """One reflectance curve per cell, values in [0.015, 0.96].
+
+    Two families of pigment, continuously mixed. A REFLECTING band returns a
+    narrow slice of the spectrum and reads as a spectral hue. An ABSORBING
+    notch subtracts one instead, which is how magenta and every other
+    non-spectral colour comes to exist: no wavelength is magenta, it is only
+    green removed. The mixture ratio is itself a field, so the two pigments
+    interleave in continents rather than meeting at a seam.
+
+    A separate albedo field then multiplies the whole curve. Darkness here is
+    not a colour, it is a surface that returns less of whatever arrives.
+    """
+    band = smooth_field(points, rng, scale=1.4)         # where the band sits
+    sharpness = smooth_field(points, rng, scale=2.3)    # how narrow it is
+    mixture = smooth_field(points, rng, scale=2.0)      # reflect vs absorb
+    albedo = smooth_field(points, rng, scale=0.9)       # lightness terrain
+
+    centre = 420 + 240 * (band * 0.5 + 0.5)             # 420-660 nm
+    sigma = 18 + 62 * (sharpness * 0.5 + 0.5)
+    ratio = np.clip(mixture * 1.6 + 0.5, 0.0, 1.0) ** 2  # smooth, biased
+    strength = 0.10 + 0.90 * (albedo * 0.5 + 0.5) ** 1.7
+    grit = rng.normal(scale=0.06, size=len(points))     # per-cell dissent
+
+    lobe = np.exp(-0.5 * ((WAVELENGTHS[None, :] - centre[:, None]) / sigma[:, None]) ** 2)
+    reflecting = 0.04 + 0.92 * lobe
+    absorbing = 0.96 - 0.88 * lobe
+
+    pigment = ratio[:, None] * reflecting + (1.0 - ratio[:, None]) * absorbing
+    spectra = pigment * strength[:, None] * (1.0 + grit[:, None])
+    return np.clip(spectra, 0.015, 0.96)

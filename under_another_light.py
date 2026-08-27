@@ -150,3 +150,33 @@ def reflectance_spectra(points, rng):
     pigment = ratio[:, None] * reflecting + (1.0 - ratio[:, None]) * absorbing
     spectra = pigment * strength[:, None] * (1.0 + grit[:, None])
     return np.clip(spectra, 0.015, 0.96)
+
+
+# ----------------------------------------------------------------------------
+# COLORIMETRY
+# spectrum x light -> XYZ -> incomplete adaptation -> sRGB
+# ----------------------------------------------------------------------------
+
+def spectra_to_xyz(spectra, spd):
+    """Relative colorimetry: a perfect diffuser under this light gives Y=100."""
+    weight = 100.0 / np.sum(spd * YBAR)
+    radiance = spectra * spd[None, :]
+    return weight * np.stack([radiance @ XBAR, radiance @ YBAR, radiance @ ZBAR], axis=1)
+
+
+def adapt(xyz, source_white, target_white, degree):
+    """von Kries in CAT02 cone space, with incomplete adaptation."""
+    lms = xyz @ CAT02.T
+    src, dst = source_white @ CAT02.T, target_white @ CAT02.T
+    gain = degree * (dst / src) + (1.0 - degree)
+    return (lms * gain) @ np.linalg.inv(CAT02).T
+
+
+def xyz_to_srgb(xyz):
+    """Gamut-map by lifting toward the achromatic axis, then encode."""
+    rgb = xyz @ XYZ_TO_LINEAR_SRGB.T / 100.0
+    rgb -= 0.4 * np.minimum(rgb.min(axis=1, keepdims=True), 0.0)
+    rgb /= np.maximum(rgb.max(axis=1, keepdims=True), 1.0)
+    rgb = np.clip(rgb, 0.0, 1.0)
+    encoded = np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * rgb ** (1 / 2.4) - 0.055)
+    return np.rint(encoded * 255).astype(int)

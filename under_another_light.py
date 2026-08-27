@@ -180,3 +180,57 @@ def xyz_to_srgb(xyz):
     rgb = np.clip(rgb, 0.0, 1.0)
     encoded = np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * rgb ** (1 / 2.4) - 0.055)
     return np.rint(encoded * 255).astype(int)
+
+
+# ----------------------------------------------------------------------------
+# GEOMETRY
+# Random points, relaxed toward their Voronoi centroids, then triangulated.
+# Mirroring the points across each edge keeps the boundary regions finite,
+# so relaxation stays honest at the edges of the frame.
+# ----------------------------------------------------------------------------
+
+def lloyd_relax(points, iterations):
+    for _ in range(iterations):
+        mirrored = np.vstack([
+            points,
+            points * [-1, 1], points * [-1, 1] + [2, 0],
+            points * [1, -1], points * [1, -1] + [0, 2],
+        ])
+        voronoi = Voronoi(mirrored)
+        moved = []
+        for index in range(len(points)):
+            region = voronoi.regions[voronoi.point_region[index]]
+            if not region or -1 in region:
+                moved.append(points[index])
+            else:
+                moved.append(voronoi.vertices[region].mean(axis=0))
+        points = np.clip(np.array(moved), 0.0, 1.0)
+    return points
+
+
+def sample_by_density(rng, count):
+    """Rejection-sample points so cell size varies. Scale contrast is the
+    only compositional device in the piece: dense passages read as texture,
+    sparse ones as architecture."""
+    accepted = []
+    while len(accepted) < count:
+        candidates = rng.random((count * 3, 2))
+        weight = 0.06 + 0.94 * (0.5 + 0.5 * smooth_field(candidates, rng, waves=2, scale=1.3)) ** 3
+        accepted.extend(candidates[rng.random(len(candidates)) < weight])
+    return np.array(accepted[:count])
+
+
+def build_mesh(rng):
+    """Density-varied interior points plus a jittered frame, triangulated."""
+    interior = lloyd_relax(sample_by_density(rng, CELLS), RELAX)
+    edge = np.linspace(0, 1, 26)
+    jitter = rng.uniform(-0.012, 0.012, size=edge.shape)
+    frame = np.vstack([
+        np.column_stack([edge, np.zeros_like(edge) + np.abs(jitter)]),
+        np.column_stack([edge, np.ones_like(edge) - np.abs(jitter)]),
+        np.column_stack([np.zeros_like(edge) + np.abs(jitter), edge]),
+        np.column_stack([np.ones_like(edge) - np.abs(jitter), edge]),
+        [[0, 0], [1, 0], [0, 1], [1, 1]],
+    ])
+    points = np.clip(np.vstack([interior, frame]), 0.0, 1.0)
+    return points, Delaunay(points)

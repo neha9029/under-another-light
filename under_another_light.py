@@ -234,3 +234,54 @@ def build_mesh(rng):
     ])
     points = np.clip(np.vstack([interior, frame]), 0.0, 1.0)
     return points, Delaunay(points)
+
+
+# ----------------------------------------------------------------------------
+# RENDER
+# ----------------------------------------------------------------------------
+
+def write_svg(path, polygons, colours):
+    header = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" '
+        f'height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}">'
+    )
+    body = []
+    for polygon, (r, g, b) in zip(polygons, colours):
+        pts = " ".join(f"{x:.2f},{y:.2f}" for x, y in polygon)
+        body.append(f'<polygon points="{pts}" fill="#{r:02x}{g:02x}{b:02x}"/>')
+    with open(path, "w") as handle:
+        handle.write(header + "".join(body) + "</svg>")
+
+
+def write_png(path, polygons, colours):
+    scale = SUPERSAMPLE
+    canvas = Image.new("RGB", (WIDTH * scale, HEIGHT * scale), "black")
+    brush = ImageDraw.Draw(canvas)
+    for polygon, colour in zip(polygons, colours):
+        brush.polygon([(x * scale, y * scale) for x, y in polygon], fill=tuple(colour))
+    canvas.resize((WIDTH, HEIGHT), Image.LANCZOS).save(path)
+
+
+def main():
+    rng = np.random.default_rng(SEED)
+
+    points, mesh = build_mesh(rng)
+    centroids = points[mesh.simplices].mean(axis=1)
+
+    spectra = reflectance_spectra(centroids, rng)
+    spd = illuminant(LIGHT)
+
+    xyz = spectra_to_xyz(spectra, spd)
+    source_white = spectra_to_xyz(np.ones((1, len(WAVELENGTHS))), spd)[0]
+    target_white = spectra_to_xyz(np.ones((1, len(WAVELENGTHS))), D65_SPD)[0]
+    colours = xyz_to_srgb(adapt(xyz, source_white, target_white, ADAPTATION))
+
+    polygons = points[mesh.simplices] * [WIDTH, HEIGHT]
+
+    write_svg("under_another_light.svg", polygons, colours)
+    write_png("under_another_light.png", polygons, colours)
+    print(f"{len(polygons)} cells, illuminant {LIGHT}, adaptation {ADAPTATION}")
+
+
+if __name__ == "__main__":
+    main()

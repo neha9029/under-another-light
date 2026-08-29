@@ -52,10 +52,19 @@ def render_panel(light):
 
 
 def caption_font(size):
-    try:
-        return ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", size)
-    except OSError:
-        return ImageFont.load_default()
+    candidates = [
+        "/System/Library/Fonts/Helvetica.ttc",              # macOS
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Debian/Ubuntu
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",           # Fedora
+        "C:/Windows/Fonts/arial.ttf",                       # Windows
+    ]
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    # Pillow >= 10.1: scalable built-in font, honours the requested size
+    return ImageFont.load_default(size)
 
 
 def main():

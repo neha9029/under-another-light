@@ -45,3 +45,4 @@ Change `LIGHT` in `under_another_light.py` (a colour temperature in kelvin, or
 ---
 
 Created for the PyCon Greece 2026 Call for Algorithmic Art.
+Also available as a [standalone gist](https://gist.github.com/neha9029/199c4d268eb2fb1ac2987246db53a469).
